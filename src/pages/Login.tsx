@@ -14,8 +14,11 @@ export function LoginPage() {
     setError(null)
     setLoading(true)
     const err = await signIn(email, password)
-    if (err) setError(err)
-    setLoading(false)
+    if (err) {
+      setError(err)
+      setLoading(false)
+    }
+    // signIn başarılıysa user state güncellenir ve ProtectedRoute yönlendirir
   }
 
   return (
@@ -31,34 +34,16 @@ export function LoginPage() {
         <form onSubmit={handleSubmit} className="card space-y-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">E-posta</label>
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="input-field"
-              placeholder="ornek@firma.com"
-              required
-              autoComplete="email"
-            />
+            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className="input-field" placeholder="ornek@firma.com" required autoComplete="email" />
           </div>
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Şifre</label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="input-field"
-              placeholder="••••••"
-              required
-              autoComplete="current-password"
-            />
+            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} className="input-field" placeholder="••••••" required autoComplete="current-password" />
           </div>
 
           {error && (
-            <div className="text-sm text-red-600 bg-red-50 rounded-lg p-3">
-              {error === 'Invalid login credentials' ? 'Hatalı e-posta veya şifre' : error}
-            </div>
+            <div className="text-sm text-red-600 bg-red-50 rounded-lg p-3">{error}</div>
           )}
 
           <button type="submit" disabled={loading} className="btn-primary w-full">

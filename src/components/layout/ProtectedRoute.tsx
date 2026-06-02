@@ -1,3 +1,4 @@
+import { Navigate } from 'react-router-dom'
 import { useRequireAuth } from '../../hooks/useAuth'
 import type { UserRole } from '../../types'
 
@@ -18,8 +19,7 @@ export function ProtectedRoute({ children, role }: Props) {
   }
 
   if (!authorized) {
-    window.location.href = '/login'
-    return null
+    return <Navigate to="/login" replace />
   }
 
   return <>{children}</>

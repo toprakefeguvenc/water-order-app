@@ -1,6 +1,8 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider } from './hooks/useAuth'
 import { ProtectedRoute } from './components/layout/ProtectedRoute'
+import { GuestRoute } from './components/layout/GuestRoute'
+import { ErrorBoundary } from './components/ui/ErrorBoundary'
 import { AppLayout } from './components/layout/AppLayout'
 import { LoginPage } from './pages/Login'
 import { SecretaryDashboard } from './pages/secretary/Dashboard'
@@ -14,31 +16,35 @@ function App() {
     <BrowserRouter>
       <AuthProvider>
         <Routes>
-          <Route path="/login" element={<LoginPage />} />
+          <Route path="/login" element={<GuestRoute><LoginPage /></GuestRoute>} />
 
           <Route
             path="/sekreter"
             element={
               <ProtectedRoute role="secretary">
-                <AppLayout />
+                <ErrorBoundary>
+                  <AppLayout />
+                </ErrorBoundary>
               </ProtectedRoute>
             }
           >
-            <Route index element={<SecretaryDashboard />} />
-            <Route path="yeni-siparis" element={<NewOrder />} />
-            <Route path="siparisler" element={<Orders />} />
-            <Route path="raporlar" element={<Reports />} />
+            <Route index element={<ErrorBoundary><SecretaryDashboard /></ErrorBoundary>} />
+            <Route path="yeni-siparis" element={<ErrorBoundary><NewOrder /></ErrorBoundary>} />
+            <Route path="siparisler" element={<ErrorBoundary><Orders /></ErrorBoundary>} />
+            <Route path="raporlar" element={<ErrorBoundary><Reports /></ErrorBoundary>} />
           </Route>
 
           <Route
             path="/dagiticim"
             element={
               <ProtectedRoute role="distributor">
-                <AppLayout />
+                <ErrorBoundary>
+                  <AppLayout />
+                </ErrorBoundary>
               </ProtectedRoute>
             }
           >
-            <Route index element={<DistributorDashboard />} />
+            <Route index element={<ErrorBoundary><DistributorDashboard /></ErrorBoundary>} />
           </Route>
 
           <Route path="*" element={<Navigate to="/login" replace />} />

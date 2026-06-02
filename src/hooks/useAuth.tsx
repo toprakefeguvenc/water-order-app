@@ -12,26 +12,42 @@ interface AuthState {
 const AuthContext = createContext<AuthState | undefined>(undefined)
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(pb.authStore.model as User | null)
+  const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    setLoading(false)
+    const model = pb.authStore.model as User | null
+    setUser(model)
+
     const unsub = pb.authStore.onChange((_token, model) => {
-      const u = model as User | null
-      setUser(u && u.is_active ? u : null)
+      setUser(model as User | null)
     })
-    return unsub
+
+    // Hızlı bir şekilde auth durumunu kontrol et
+    const init = async () => {
+      if (pb.authStore.isValid) {
+        try {
+          await pb.collection('users').authRefresh()
+        } catch {
+          pb.authStore.clear()
+        }
+      }
+      setLoading(false)
+    }
+    init()
+
+    return () => unsub()
   }, [])
 
   const signIn = async (email: string, password: string): Promise<string | null> => {
     try {
       const authData = await pb.collection('users').authWithPassword(email, password)
       const u = authData.record as unknown as User
-      if (!u.is_active) {
+      if (!u.role) {
         pb.authStore.clear()
-        return 'Bu hesap devre dışı bırakılmış.'
+        return 'Bu kullanıcıya yetki (rol) atanmamış. Lütfen admin panelden rol ekleyin.'
       }
+      setUser(u)
       return null
     } catch (err: any) {
       if (err?.status === 400) return 'Hatalı e-posta veya şifre.'
@@ -42,6 +58,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signOut = async () => {
     pb.authStore.clear()
+    setUser(null)
   }
 
   return (
@@ -59,21 +76,8 @@ export function useAuth() {
 
 export function useRequireAuth(role?: UserRole) {
   const { user, loading } = useAuth()
-  const [authorized, setAuthorized] = useState(false)
 
-  useEffect(() => {
-    if (!loading) {
-      if (!user || !user.is_active) {
-        setAuthorized(false)
-        return
-      }
-      if (role && user.role !== role) {
-        setAuthorized(false)
-        return
-      }
-      setAuthorized(true)
-    }
-  }, [user, loading, role])
+  const authorized = !loading && !!user && (!role || user.role === role)
 
   return { authorized, loading, user }
 }
