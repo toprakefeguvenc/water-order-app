@@ -1,29 +1,21 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { supabase } from '../../lib/supabase'
+import { pb } from '../../lib/pocketbase'
 import { useAuth } from '../../hooks/useAuth'
-import { startOfDay, format, parseISO } from 'date-fns'
+import { format, parseISO, startOfDay } from 'date-fns'
 import { tr } from 'date-fns/locale'
+import type { Order } from '../../types'
 
 interface Stats {
   todayTotal: number
   todayDelivered: number
   todayPending: number
   totalOrders: number
-  pendingOrders: OrderPreview[]
-}
-
-interface OrderPreview {
-  id: string
-  customer_name: string
-  status: string
-  created_at: string
-  brands?: { name: string } | null
-  assignee?: { full_name: string } | null
+  pendingOrders: Order[]
 }
 
 export function SecretaryDashboard() {
-  const { profile } = useAuth()
+  const { user } = useAuth()
   const [stats, setStats] = useState<Stats>({
     todayTotal: 0, todayDelivered: 0, todayPending: 0, totalOrders: 0, pendingOrders: [],
   })
@@ -34,42 +26,29 @@ export function SecretaryDashboard() {
   }, [])
 
   const loadStats = async () => {
-    const today = startOfDay(new Date()).toISOString()
+    try {
+      const today = startOfDay(new Date()).toISOString()
 
-    const { count: todayTotal } = await supabase
-      .from('orders')
-      .select('*', { count: 'exact', head: true })
-      .gte('created_at', today)
+      const allOrders = await pb.collection('orders').getList(1, 200, {
+        sort: '-created',
+        expand: 'brand,assignee,creator',
+      })
+      const orders = allOrders.items as unknown as Order[]
 
-    const { count: todayDelivered } = await supabase
-      .from('orders')
-      .select('*', { count: 'exact', head: true })
-      .gte('created_at', today)
-      .eq('status', 'delivered')
+      const todayOrders = orders.filter((o) => o.created >= today)
 
-    const { count: todayPending } = await supabase
-      .from('orders')
-      .select('*', { count: 'exact', head: true })
-      .eq('status', 'pending')
-
-    const { count: totalOrders } = await supabase
-      .from('orders')
-      .select('*', { count: 'exact', head: true })
-
-    const { data: pendingOrders } = await supabase
-      .from('orders')
-      .select('*, brands:brand_id(name), assignee:assigned_to(full_name)')
-      .eq('status', 'pending')
-      .order('created_at', { ascending: false })
-      .limit(5)
-
-    setStats({
-      todayTotal: todayTotal || 0,
-      todayDelivered: todayDelivered || 0,
-      todayPending: todayPending || 0,
-      totalOrders: totalOrders || 0,
-      pendingOrders: (pendingOrders as OrderPreview[]) || [],
-    })
+      setStats({
+        todayTotal: todayOrders.length,
+        todayDelivered: todayOrders.filter((o) => o.status === 'delivered').length,
+        todayPending: orders.filter((o) => o.status === 'pending').length,
+        totalOrders: allOrders.totalItems,
+        pendingOrders: orders
+          .filter((o) => o.status === 'pending')
+          .slice(0, 5),
+      })
+    } catch {
+      // silent fail
+    }
     setLoading(false)
   }
 
@@ -87,7 +66,7 @@ export function SecretaryDashboard() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="page-title">Hoş geldiniz, {profile?.full_name}</h1>
+        <h1 className="page-title">Hoş geldiniz, {user?.full_name}</h1>
         <p className="text-sm text-gray-500 mt-0.5">Bugünün sipariş özeti</p>
       </div>
 
@@ -116,7 +95,7 @@ export function SecretaryDashboard() {
             {stats.pendingOrders.map((order) => (
               <Link
                 key={order.id}
-                to={`/sekreter/siparisler`}
+                to="/sekreter/siparisler"
                 className="block p-3 rounded-lg border border-gray-100 hover:bg-gray-50 transition-colors"
               >
                 <div className="flex items-center justify-between">
@@ -126,9 +105,9 @@ export function SecretaryDashboard() {
                   </span>
                 </div>
                 <div className="flex items-center gap-3 mt-1 text-xs text-gray-500">
-                  {order.brands && <span>{order.brands.name}</span>}
-                  {order.assignee && <span>→ {order.assignee.full_name}</span>}
-                  <span>{format(parseISO(order.created_at), 'HH:mm')}</span>
+                  {order.expand?.brand && <span>{order.expand.brand.name}</span>}
+                  {order.expand?.assignee && <span>→ {order.expand.assignee.full_name}</span>}
+                  <span>{format(parseISO(order.created), 'HH:mm')}</span>
                 </div>
               </Link>
             ))}

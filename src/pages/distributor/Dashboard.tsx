@@ -106,9 +106,9 @@ export function DistributorDashboard() {
               </div>
 
               <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-2 text-xs text-gray-500">
-                {order.brands && <span>💧 {order.brands.name}</span>}
+                {order.expand?.brand && <span>💧 {order.expand.brand.name}</span>}
                 <span>×{order.quantity}</span>
-                <span>🕐 {format(parseISO(order.created_at), 'HH:mm')}</span>
+                <span>🕐 {format(parseISO(order.created), 'HH:mm')}</span>
               </div>
 
               {order.note && (
@@ -196,7 +196,7 @@ export function DistributorDashboard() {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs text-gray-500 uppercase tracking-wide">Marka</label>
-                  <p className="text-sm font-medium">{selectedOrder.brands?.name || '—'}</p>
+                  <p className="text-sm font-medium">{selectedOrder.expand?.brand?.name || '—'}</p>
                 </div>
                 <div>
                   <label className="text-xs text-gray-500 uppercase tracking-wide">Adet</label>

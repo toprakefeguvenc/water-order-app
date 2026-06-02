@@ -1,14 +1,17 @@
 import { useEffect, useState, useCallback } from 'react'
-import { supabase } from '../lib/supabase'
+import { pb } from '../lib/pocketbase'
 import type { Order, OrderStatus } from '../types'
-import type { RealtimePostgresChangesPayload } from '@supabase/supabase-js'
 
-const ORDERS_QUERY = `
-  *,
-  brands:brand_id (id, name),
-  assignee:assigned_to (id, full_name, phone),
-  creator:created_by (id, full_name)
-`
+function friendlyError(err: any): string {
+  if (!navigator.onLine) return 'İnternet bağlantınız yok.'
+  if (err?.status === 0 || err?.message?.includes('Failed to fetch'))
+    return 'Sunucuya bağlanılamadı. PocketBase sunucusunu kontrol edin.'
+  if (err?.message?.includes('timeout'))
+    return 'Bağlantı zaman aşımına uğradı.'
+  return err?.message || 'Beklenmeyen bir hata.'
+}
+
+const ORDERS_EXPAND = 'brand,assignee,creator'
 
 export function useOrders(statusFilter?: OrderStatus, assignedTo?: string) {
   const [orders, setOrders] = useState<Order[]>([])
@@ -17,19 +20,21 @@ export function useOrders(statusFilter?: OrderStatus, assignedTo?: string) {
 
   const fetchOrders = useCallback(async () => {
     setLoading(true)
-    let query = supabase
-      .from('orders')
-      .select(ORDERS_QUERY)
-      .order('created_at', { ascending: false })
+    setError(null)
+    try {
+      const filterParts: string[] = []
+      if (statusFilter) filterParts.push(`status = '${statusFilter}'`)
+      if (assignedTo) filterParts.push(`assigned_to = '${assignedTo}'`)
+      const filter = filterParts.join(' && ')
 
-    if (statusFilter) query = query.eq('status', statusFilter)
-    if (assignedTo) query = query.eq('assigned_to', assignedTo)
-
-    const { data, error: err } = await query
-    if (err) {
-      setError(err.message)
-    } else {
-      setOrders((data as Order[]) || [])
+      const list = await pb.collection('orders').getList(1, 200, {
+        sort: '-created',
+        filter: filter || undefined,
+        expand: ORDERS_EXPAND,
+      })
+      setOrders(list.items as unknown as Order[])
+    } catch (err: any) {
+      setError(friendlyError(err))
     }
     setLoading(false)
   }, [statusFilter, assignedTo])
@@ -37,20 +42,11 @@ export function useOrders(statusFilter?: OrderStatus, assignedTo?: string) {
   useEffect(() => {
     fetchOrders()
 
-    const channel = supabase
-      .channel('orders-channel')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'orders' },
-        (payload: RealtimePostgresChangesPayload<Order>) => {
-          fetchOrders()
-        }
-      )
-      .subscribe()
+    const unsub = pb.collection('orders').subscribe('*', () => {
+      fetchOrders()
+    })
 
-    return () => {
-      supabase.removeChannel(channel)
-    }
+    return () => { unsub.then(fn => fn()) }
   }, [fetchOrders])
 
   return { orders, loading, error, refetch: fetchOrders }
@@ -60,17 +56,26 @@ export async function createOrder(data: {
   customer_name: string
   customer_address: string
   customer_phone?: string
-  brand_id?: number
+  brand?: string
   quantity: number
   note?: string
   assigned_to: string
   created_by: string
 }) {
-  const { error } = await supabase.from('orders').insert({
-    ...data,
-    status: 'pending',
-  })
-  return { error: error?.message ?? null }
+  if (!navigator.onLine) return { error: 'İnternet bağlantınız yok.' }
+  try {
+    await pb.collection('orders').create({
+      ...data,
+      customer_phone: data.customer_phone || '',
+      note: data.note || '',
+      brand: data.brand || '',
+      status: 'pending',
+      quantity: Math.max(1, data.quantity),
+    })
+    return { error: null }
+  } catch (err: any) {
+    return { error: friendlyError(err) }
+  }
 }
 
 export async function updateOrderStatus(
@@ -78,21 +83,23 @@ export async function updateOrderStatus(
   status: OrderStatus,
   userId: string
 ) {
-  const updates: Partial<Order> = { status, updated_at: new Date().toISOString() }
-  if (status === 'delivered') updates.delivered_at = new Date().toISOString()
+  if (!navigator.onLine) return { error: 'İnternet bağlantınız yok.' }
 
-  const { error } = await supabase
-    .from('order_status_logs')
-    .insert({ order_id: orderId, from_status: null, to_status: status, changed_by: userId })
+  try {
+    await pb.collection('order_status_logs').create({
+      order: orderId,
+      to_status: status,
+      changed_by: userId,
+    })
 
-  if (error) return { error: error.message }
+    const updates: Record<string, any> = { status, updated: new Date().toISOString() }
+    if (status === 'delivered') updates.delivered_at = new Date().toISOString()
 
-  const { error: updateError } = await supabase
-    .from('orders')
-    .update(updates)
-    .eq('id', orderId)
-
-  return { error: updateError?.message ?? null }
+    await pb.collection('orders').update(orderId, updates)
+    return { error: null }
+  } catch (err: any) {
+    return { error: friendlyError(err) }
+  }
 }
 
 export function useDistributorOrders() {
@@ -101,26 +108,26 @@ export function useDistributorOrders() {
   const [error, setError] = useState<string | null>(null)
 
   const fetch = useCallback(async () => {
-    setLoading(true)
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
+    if (!navigator.onLine) {
+      setError('İnternet bağlantınız yok.')
       setLoading(false)
       return
     }
 
-    let query = supabase
-      .from('orders')
-      .select(ORDERS_QUERY)
-      .eq('assigned_to', user.id)
-      .neq('status', 'cancelled')
-      .order('created_at', { ascending: false })
-      .limit(50)
+    const user = pb.authStore.model as { id: string } | null
+    if (!user) { setLoading(false); return }
 
-    const { data, error: err } = await query
-    if (err) {
-      setError(err.message)
-    } else {
-      setOrders((data as Order[]) || [])
+    setLoading(true)
+    setError(null)
+    try {
+      const list = await pb.collection('orders').getList(1, 50, {
+        sort: '-created',
+        filter: `assigned_to = '${user.id}' && status != 'cancelled'`,
+        expand: ORDERS_EXPAND,
+      })
+      setOrders(list.items as unknown as Order[])
+    } catch (err: any) {
+      setError(friendlyError(err))
     }
     setLoading(false)
   }, [])
@@ -128,29 +135,16 @@ export function useDistributorOrders() {
   useEffect(() => {
     fetch()
 
-    let currentUser: string | null = null
-    supabase.auth.getUser().then(({ data }) => {
-      currentUser = data.user?.id ?? null
+    const unsub = pb.collection('orders').subscribe('*', (e) => {
+      const record = e.record as unknown as Order
+      const currentUserId = (pb.authStore.model as { id: string } | null)?.id
+      if (currentUserId && record.assigned_to === currentUserId) {
+        if (e.action === 'create') playNotificationSound()
+        fetch()
+      }
     })
 
-    const channel = supabase
-      .channel('distributor-orders')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'orders' },
-        (payload: RealtimePostgresChangesPayload<Order>) => {
-          const newOrder = payload.new as Order
-          if (currentUser && newOrder.assigned_to === currentUser) {
-            if (payload.eventType === 'INSERT') playNotificationSound()
-            fetch()
-          }
-        }
-      )
-      .subscribe()
-
-    return () => {
-      supabase.removeChannel(channel)
-    }
+    return () => { unsub.then(fn => fn()) }
   }, [fetch])
 
   return { orders, loading, error, refetch: fetch }
@@ -169,7 +163,5 @@ function playNotificationSound() {
     gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.5)
     osc.start(ctx.currentTime)
     osc.stop(ctx.currentTime + 0.5)
-  } catch {
-    // Audio not supported
-  }
+  } catch { /* audio not supported */ }
 }

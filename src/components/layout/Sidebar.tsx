@@ -18,8 +18,8 @@ interface Props {
 }
 
 export function Sidebar({ open, onClose }: Props) {
-  const { profile, signOut } = useAuth()
-  const links = profile?.role === 'secretary' ? secretaryLinks : distributorLinks
+  const { user, signOut } = useAuth()
+  const links = user?.role === 'secretary' ? secretaryLinks : distributorLinks
 
   return (
     <>
@@ -67,11 +67,11 @@ export function Sidebar({ open, onClose }: Props) {
         <div className="absolute bottom-0 left-0 right-0 p-3 border-t border-gray-200">
           <div className="flex items-center gap-3 px-3 py-2 mb-2">
             <div className="w-8 h-8 rounded-full bg-primary-100 text-primary-700 flex items-center justify-center text-sm font-semibold">
-              {profile?.full_name?.[0]?.toUpperCase()}
+              {user?.full_name?.[0]?.toUpperCase()}
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-gray-900 truncate">{profile?.full_name}</p>
-              <p className="text-xs text-gray-500 capitalize">{profile?.role === 'secretary' ? 'Sekreter' : 'Dağıtımcı'}</p>
+              <p className="text-sm font-medium text-gray-900 truncate">{user?.full_name}</p>
+              <p className="text-xs text-gray-500 capitalize">{user?.role === 'secretary' ? 'Sekreter' : 'Dağıtımcı'}</p>
             </div>
           </div>
           <button

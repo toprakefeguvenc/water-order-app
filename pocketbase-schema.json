@@ -1,0 +1,62 @@
+{
+  "collections": [
+    {
+      "name": "brands",
+      "type": "base",
+      "system": false,
+      "schema": [
+        { "name": "name", "type": "text", "required": true, "unique": true, "options": { "max": 100, "min": 1 } },
+        { "name": "is_active", "type": "bool", "default": true }
+      ],
+      "listRule": "@request.auth.is_active = true",
+      "viewRule": "@request.auth.is_active = true",
+      "createRule": "@request.auth.role = 'secretary'",
+      "updateRule": "@request.auth.role = 'secretary'",
+      "deleteRule": null,
+      "indexes": ["CREATE UNIQUE INDEX idx_brands_name ON brands (name)"]
+    },
+    {
+      "name": "orders",
+      "type": "base",
+      "system": false,
+      "schema": [
+        { "name": "customer_name", "type": "text", "required": true, "options": { "max": 200, "min": 1 } },
+        { "name": "customer_address", "type": "text", "required": true, "options": { "max": 500, "min": 1 } },
+        { "name": "customer_phone", "type": "text", "options": { "max": 20 } },
+        { "name": "brand", "type": "relation", "options": { "collectionId": "", "cascadeDelete": false, "maxSelect": 1 } },
+        { "name": "quantity", "type": "number", "required": true, "default": 1, "options": { "min": 1 } },
+        { "name": "note", "type": "text", "options": { "max": 500 } },
+        { "name": "status", "type": "select", "required": true, "default": "pending", "options": { "values": ["pending", "accepted", "on_the_way", "delivered", "cancelled"] } },
+        { "name": "created_by", "type": "relation", "options": { "collectionId": "_pb_users_auth_", "cascadeDelete": false, "maxSelect": 1 } },
+        { "name": "assigned_to", "type": "relation", "options": { "collectionId": "_pb_users_auth_", "cascadeDelete": false, "maxSelect": 1 } },
+        { "name": "delivered_at", "type": "date" }
+      ],
+      "listRule": "@request.auth.role = 'secretary' || (@request.auth.role = 'distributor' && @request.auth.id = assigned_to)",
+      "viewRule": "@request.auth.role = 'secretary' || (@request.auth.role = 'distributor' && @request.auth.id = assigned_to)",
+      "createRule": "@request.auth.role = 'secretary'",
+      "updateRule": "@request.auth.role = 'secretary' || (@request.auth.role = 'distributor' && @request.auth.id = assigned_to)",
+      "deleteRule": null,
+      "indexes": [
+        "CREATE INDEX idx_orders_assigned_to ON orders (assigned_to)",
+        "CREATE INDEX idx_orders_status ON orders (status)",
+        "CREATE INDEX idx_orders_created ON orders (created)"
+      ]
+    },
+    {
+      "name": "order_status_logs",
+      "type": "base",
+      "system": false,
+      "schema": [
+        { "name": "order", "type": "relation", "required": true, "options": { "collectionId": "", "cascadeDelete": true, "maxSelect": 1 } },
+        { "name": "from_status", "type": "text" },
+        { "name": "to_status", "type": "text", "required": true },
+        { "name": "changed_by", "type": "relation", "options": { "collectionId": "_pb_users_auth_", "cascadeDelete": false, "maxSelect": 1 } }
+      ],
+      "listRule": "@request.auth.is_active = true",
+      "viewRule": "@request.auth.is_active = true",
+      "createRule": "@request.auth.role = 'secretary' || @request.auth.role = 'distributor'",
+      "updateRule": null,
+      "deleteRule": null
+    }
+  ]
+}

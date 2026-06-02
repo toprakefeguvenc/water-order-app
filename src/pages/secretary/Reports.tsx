@@ -1,25 +1,13 @@
 import { useEffect, useState } from 'react'
-import { supabase } from '../../lib/supabase'
-import { format, startOfWeek, startOfMonth, parseISO, eachDayOfInterval, subDays } from 'date-fns'
+import { pb } from '../../lib/pocketbase'
+import { format, parseISO, subDays, eachDayOfInterval } from 'date-fns'
 import { tr } from 'date-fns/locale'
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts'
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts'
+import type { Order } from '../../types'
 
-interface DailyStats {
-  date: string
-  total: number
-  delivered: number
-}
-
-interface BrandStats {
-  name: string
-  count: number
-}
-
-interface DistributorStats {
-  name: string
-  total: number
-  delivered: number
-}
+interface DailyStats { date: string; total: number; delivered: number }
+interface BrandStats { name: string; count: number }
+interface DistributorStats { name: string; total: number; delivered: number }
 
 export function Reports() {
   const [period, setPeriod] = useState<'daily' | 'weekly' | 'monthly'>('daily')
@@ -28,111 +16,76 @@ export function Reports() {
   const [distributorData, setDistributorData] = useState<DistributorStats[]>([])
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
-    loadReports()
-  }, [period])
+  useEffect(() => { loadReports() }, [period])
 
   const loadReports = async () => {
     setLoading(true)
+    try {
+      const now = new Date()
+      const startDate = period === 'daily' ? subDays(now, 7) : period === 'weekly' ? subDays(now, 28) : subDays(now, 90)
 
-    let startDate: Date
-    const now = new Date()
+      const result = await pb.collection('orders').getList(1, 500, {
+        sort: '-created',
+        expand: 'brand,assignee',
+      })
+      const orders = (result.items as unknown as Order[])
+        .filter((o) => o.created >= startDate.toISOString())
 
-    if (period === 'daily') startDate = subDays(now, 7)
-    else if (period === 'weekly') startDate = subDays(now, 28)
-    else startDate = subDays(now, 90)
+      const days = eachDayOfInterval({ start: startDate, end: now })
+      const dailyMap = new Map<string, { total: number; delivered: number }>()
+      days.forEach((d) => dailyMap.set(format(d, 'yyyy-MM-dd'), { total: 0, delivered: 0 }))
 
-    const startStr = startDate.toISOString()
+      const brandMap = new Map<string, number>()
+      const distMap = new Map<string, { total: number; delivered: number }>()
 
-    const { data: orders } = await supabase
-      .from('orders')
-      .select('*, brands:brand_id(name), assignee:assigned_to(full_name)')
-      .gte('created_at', startStr)
-      .order('created_at', { ascending: true })
+      for (const o of orders) {
+        const dayKey = format(parseISO(o.created), 'yyyy-MM-dd')
+        const entry = dailyMap.get(dayKey)
+        if (entry) {
+          entry.total++
+          if (o.status === 'delivered') entry.delivered++
+        }
 
-    if (!orders) { setLoading(false); return }
+        const brandName = o.expand?.brand?.name || 'Belirtilmemiş'
+        brandMap.set(brandName, (brandMap.get(brandName) || 0) + 1)
 
-    const days = eachDayOfInterval({ start: startDate, end: now })
-    const dailyMap = new Map<string, { total: number; delivered: number }>()
-
-    days.forEach((d) => {
-      dailyMap.set(format(d, 'yyyy-MM-dd'), { total: 0, delivered: 0 })
-    })
-
-    const brandMap = new Map<string, number>()
-    const distMap = new Map<string, { total: number; delivered: number }>()
-
-    for (const o of orders) {
-      const dayKey = format(parseISO(o.created_at), 'yyyy-MM-dd')
-      if (dailyMap.has(dayKey)) {
-        const entry = dailyMap.get(dayKey)!
-        entry.total++
-        if (o.status === 'delivered') entry.delivered++
+        const distName = o.expand?.assignee?.full_name || 'Belirtilmemiş'
+        const dist = distMap.get(distName) || { total: 0, delivered: 0 }
+        dist.total++
+        if (o.status === 'delivered') dist.delivered++
+        distMap.set(distName, dist)
       }
 
-      const brandName = o.brands?.name || 'Belirtilmemiş'
-      brandMap.set(brandName, (brandMap.get(brandName) || 0) + 1)
-
-      const distName = o.assignee?.full_name || 'Belirtilmemiş'
-      const dist = distMap.get(distName) || { total: 0, delivered: 0 }
-      dist.total++
-      if (o.status === 'delivered') dist.delivered++
-      distMap.set(distName, dist)
-    }
-
-    setDailyData(
-      Array.from(dailyMap.entries()).map(([date, stats]) => ({
+      setDailyData(Array.from(dailyMap.entries()).map(([date, s]) => ({
         date: format(parseISO(date), 'd MMM', { locale: tr }),
-        total: stats.total,
-        delivered: stats.delivered,
-      }))
-    )
+        total: s.total,
+        delivered: s.delivered,
+      })))
 
-    setBrandData(
-      Array.from(brandMap.entries()).map(([name, count]) => ({ name, count }))
-    )
-
-    setDistributorData(
-      Array.from(distMap.entries()).map(([name, stats]) => ({
-        name,
-        total: stats.total,
-        delivered: stats.delivered,
-      }))
-    )
-
+      setBrandData(Array.from(brandMap.entries()).map(([name, count]) => ({ name, count })))
+      setDistributorData(Array.from(distMap.entries()).map(([name, s]) => ({ name, total: s.total, delivered: s.delivered })))
+    } catch {
+      // silent
+    }
     setLoading(false)
   }
 
   const COLORS = ['#0ea5e9', '#10b981', '#f59e0b', '#8b5cf6', '#ef4444', '#ec4899']
 
-  const handlePrint = () => {
-    window.print()
-  }
+  const handlePrint = () => window.print()
 
-  if (loading) {
-    return <div className="text-center py-12 text-gray-400">Raporlar yükleniyor...</div>
-  }
+  if (loading) return <div className="text-center py-12 text-gray-400">Raporlar yükleniyor...</div>
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="page-title">Raporlar</h1>
-        <button onClick={handlePrint} className="btn-secondary text-sm">
-          📄 PDF Çıktı
-        </button>
+        <button onClick={handlePrint} className="btn-secondary text-sm">📄 PDF Çıktı</button>
       </div>
 
       <div className="flex gap-1.5">
         {(['daily', 'weekly', 'monthly'] as const).map((p) => (
-          <button
-            key={p}
-            onClick={() => setPeriod(p)}
-            className={`px-4 py-1.5 rounded-full text-xs font-medium transition-colors ${
-              period === p
-                ? 'bg-primary-500 text-white'
-                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-            }`}
-          >
+          <button key={p} onClick={() => setPeriod(p)} className={`px-4 py-1.5 rounded-full text-xs font-medium transition-colors ${period === p ? 'bg-primary-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
             {p === 'daily' ? 'Günlük' : p === 'weekly' ? 'Haftalık' : 'Aylık'}
           </button>
         ))}
@@ -159,18 +112,9 @@ export function Reports() {
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
-                <Pie
-                  data={brandData}
-                  dataKey="count"
-                  nameKey="name"
-                  cx="50%"
-                  cy="50%"
-                  outerRadius={80}
-                  label={({ name, percent }) => `${name} %${(percent * 100).toFixed(0)}`}
-                >
-                  {brandData.map((_, i) => (
-                    <Cell key={i} fill={COLORS[i % COLORS.length]} />
-                  ))}
+                <Pie data={brandData} dataKey="count" nameKey="name" cx="50%" cy="50%" outerRadius={80}
+                  label={({ name, percent }) => `${name} %${(percent * 100).toFixed(0)}`}>
+                  {brandData.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
                 </Pie>
                 <Tooltip />
               </PieChart>
@@ -181,7 +125,7 @@ export function Reports() {
         <div className="card">
           <h2 className="font-semibold text-sm text-gray-900 mb-3">Dağıtımcı Performans</h2>
           <div className="space-y-3">
-            {distributorData.map((d, i) => (
+            {distributorData.map((d) => (
               <div key={d.name} className="flex items-center justify-between">
                 <span className="text-sm font-medium text-gray-700">{d.name}</span>
                 <div className="text-right">
@@ -192,9 +136,7 @@ export function Reports() {
                 </div>
               </div>
             ))}
-            {distributorData.length === 0 && (
-              <p className="text-sm text-gray-400 text-center py-4">Veri bulunamadı</p>
-            )}
+            {distributorData.length === 0 && <p className="text-sm text-gray-400 text-center py-4">Veri bulunamadı</p>}
           </div>
         </div>
       </div>
@@ -213,19 +155,15 @@ export function Reports() {
               </tr>
             </thead>
             <tbody>
-              {[...distributorData]
-                .sort((a, b) => b.delivered - a.delivered)
-                .map((d, i) => (
-                  <tr key={d.name} className="border-b border-gray-50">
-                    <td className="py-2 px-2 text-gray-500">{i + 1}</td>
-                    <td className="py-2 px-2 font-medium">{d.name}</td>
-                    <td className="py-2 px-2 text-right">{d.total}</td>
-                    <td className="py-2 px-2 text-right text-emerald-600">{d.delivered}</td>
-                    <td className="py-2 px-2 text-right">
-                      {d.total > 0 ? ((d.delivered / d.total) * 100).toFixed(0) : 0}%
-                    </td>
-                  </tr>
-                ))}
+              {[...distributorData].sort((a, b) => b.delivered - a.delivered).map((d, i) => (
+                <tr key={d.name} className="border-b border-gray-50">
+                  <td className="py-2 px-2 text-gray-500">{i + 1}</td>
+                  <td className="py-2 px-2 font-medium">{d.name}</td>
+                  <td className="py-2 px-2 text-right">{d.total}</td>
+                  <td className="py-2 px-2 text-right text-emerald-600">{d.delivered}</td>
+                  <td className="py-2 px-2 text-right">{d.total > 0 ? ((d.delivered / d.total) * 100).toFixed(0) : 0}%</td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>
