@@ -19,8 +19,8 @@ export default defineConfig(({ mode }) => {
         background_color: '#f0f9ff',
         display: 'standalone',
         orientation: 'portrait',
-        start_url: '/',
-        scope: '/',
+        start_url: env.VITE_BASE_URL || '/',
+        scope: env.VITE_BASE_URL || '/',
         icons: [
           { src: 'icons/icon-192.svg', sizes: '192x192', type: 'image/svg+xml' },
           { src: 'icons/icon-512.svg', sizes: '512x512', type: 'image/svg+xml' },

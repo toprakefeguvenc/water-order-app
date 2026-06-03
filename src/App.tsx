@@ -1,4 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+
+const basename = import.meta.env.VITE_BASE_URL || '/'
 import { AuthProvider } from './hooks/useAuth'
 import { ProtectedRoute } from './components/layout/ProtectedRoute'
 import { GuestRoute } from './components/layout/GuestRoute'
@@ -13,7 +15,7 @@ import { DistributorDashboard } from './pages/distributor/Dashboard'
 
 function App() {
   return (
-    <BrowserRouter>
+    <BrowserRouter basename={basename}>
       <AuthProvider>
         <Routes>
           <Route path="/login" element={<GuestRoute><LoginPage /></GuestRoute>} />
